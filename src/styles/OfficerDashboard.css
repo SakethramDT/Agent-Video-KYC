@@ -1,0 +1,200 @@
+/* dashboard.css
+   Clean "government" style: neutral palette, clear spacing, accessible sizes.
+   Put this file into the same folder and import from components.
+*/
+
+:root{
+  --gov-bg: #f4f6f8;
+  --gov-surface: #ffffff;
+  --gov-border: #d6dde3;
+  --gov-text: #1f2d3d;
+  --gov-muted: #6b7680;
+  --gov-accent: #144f7f;        /* muted government blue */
+  --gov-accent-2: #2c6ea4;
+  --gov-warning: #b07b00;
+  --gov-ok: #1f7a3a;
+  --gov-reject: #b02a2a;
+  --gov-radius: 10px;
+  --gov-gap: 16px;
+  --gov-shadow: 0 1px 2px rgba(20,30,40,0.04);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+*{box-sizing:border-box}
+html,body,#root{height:100%}
+body{
+  margin:0;
+  background:var(--gov-bg);
+  color:var(--gov-text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-size:14px;
+  line-height:1.4;
+}
+
+/* Layout */
+.gov-app{
+  display:flex;
+  min-height:100vh;
+  align-items:stretch;
+}
+
+/* Sidebar */
+.gov-sidebar{
+  width:280px;
+  background:var(--gov-surface);
+  border-right:1px solid var(--gov-border);
+  display:flex;
+  flex-direction:column;
+  padding:20px;
+  gap:18px;
+  position:fixed;
+  left:0;
+  top:0;
+  bottom:0;
+}
+
+.gov-sidebar__brand{display:flex;gap:12px;align-items:center}
+.gov-logo{width:48px;height:48px;position:relative}
+.gov-logo__box{width:28px;height:28px;background:var(--gov-accent);border-radius:6px;border:3px solid white;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+.gov-logo__dot{position:absolute;width:8px;height:8px;background:#2a9d3a;border-radius:50%;right:2px;top:-4px}
+.gov-title{margin:0;font-size:18px;font-weight:700}
+.gov-sub{margin:0;font-size:12px;color:var(--gov-muted)}
+
+/* Nav */
+.gov-nav{display:flex;flex-direction:column;gap:8px}
+.gov-nav__heading{font-size:11px;color:var(--gov-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px}
+.gov-nav__item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  border-radius:8px;
+  background:transparent;
+  border:none;
+  cursor:pointer;
+  text-align:left;
+  color:var(--gov-text);
+  font-weight:600;
+}
+.gov-nav__item:hover{background:#f2f7fb}
+.gov-nav__item.active{background:#e8f4fb;color:var(--gov-accent)}
+.gov-icon{width:18px;height:18px}
+.gov-nav__left{display:flex;align-items:center;gap:10px}
+.gov-badge{background:#e9f4ff;color:var(--gov-accent);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700}
+
+/* Stats at sidebar bottom */
+.gov-sidebar__stats{border-top:1px solid var(--gov-border);padding-top:12px}
+.gov-stats__heading{font-size:11px;color:var(--gov-muted);margin-bottom:8px}
+.gov-stats{display:flex;flex-direction:column;gap:8px}
+.gov-stats__row{display:flex;justify-content:space-between;align-items:center}
+.gov-stats__value{background:#f3fbf6;color:#196f3a;padding:4px 8px;border-radius:6px;font-weight:700}
+
+/* profile */
+.gov-sidebar__profile{border-top:1px solid var(--gov-border);padding-top:12px}
+.gov-profile{display:flex;align-items:center;gap:12px}
+.gov-avatar{width:44px;height:44px;border-radius:50%;background:#e9eef2;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gov-muted);position:relative}
+.gov-avatar__online{width:10px;height:10px;background:#2a9d3a;border-radius:50%;position:absolute;right:-2px;top:-2px;border:2px solid white}
+.gov-profile__meta{flex:1}
+.gov-profile__name{font-weight:700}
+.gov-profile__sub{font-size:12px;color:#2a8a44}
+
+/* main content */
+.gov-main{
+  margin-left:280px;
+  padding:28px;
+  flex:1;
+  min-height:100vh;
+}
+
+/* header area */
+.gov-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.gov-heading{margin:0;font-size:24px;font-weight:800}
+.gov-lead{margin:0;color:var(--gov-muted)}
+.gov-actions{display:flex;gap:12px}
+
+.btn{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:8px;
+  border:1px solid var(--gov-border);
+  background:var(--gov-surface);
+  cursor:pointer;
+  font-weight:700;
+}
+.btn:focus{outline:3px solid rgba(20,80,140,0.12)}
+.btn-primary{background:var(--gov-accent);border-color:var(--gov-accent);color:white}
+.btn-primary:hover{background:var(--gov-accent-2)}
+.btn-outline{background:transparent}
+.btn-secondary{background:#fff;border:1px solid var(--gov-border)}
+.btn-small{padding:8px 10px;font-size:13px}
+.btn-warning{background:var(--gov-warning);color:white;border:none}
+.btn-icon{width:16px;height:16px}
+
+/* cards row */
+.gov-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+.card{background:var(--gov-surface);border:1px solid var(--gov-border);padding:16px;border-radius:12px;box-shadow:var(--gov-shadow)}
+.card__header{display:flex;flex-direction:column;gap:10px}
+.card__title{font-weight:600;color:var(--gov-muted)}
+.card__icon-box{width:36px;height:36px;border-radius:8px;background:#f0f7fb;display:flex;align-items:center;justify-content:center}
+.card__icon{width:20px;height:20px;color:var(--gov-accent)}
+.card__value{font-size:26px;font-weight:800}
+.card__sub{color:var(--gov-muted);font-size:13px}
+
+/* layout grid */
+.gov-grid{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+.gov-grid__main{}
+.gov-grid__side{}
+
+/* panels */
+.panel{background:var(--gov-surface);border:1px solid var(--gov-border);border-radius:12px;padding:16px;box-shadow:var(--gov-shadow);margin-bottom:16px}
+.panel__head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.panel__title{display:flex;align-items:center;gap:10px}
+.panel__lead-icon{width:18px;height:18px;color:var(--gov-muted)}
+.gov-pill{padding:6px 10px;background:#f1f7f2;border-radius:999px;font-weight:700;color:var(--gov-accent)}
+.gov-pill--green{background:#edf9f0;color:var(--gov-ok)}
+
+/* session rows */
+.session-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;background:#fbfdff;border:1px solid transparent}
+.session-row + .session-row{margin-top:10px}
+.session-row__avatar{width:44px;height:44;border-radius:50%;background:#eaf5ff;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--gov-accent)}
+.session-row__info{flex:1}
+.session-row__name{font-weight:700}
+.session-row__meta{display:flex;gap:10px;color:var(--gov-muted);align-items:center;margin-top:6px}
+.meta-icon{width:14px;height:14px;color:var(--gov-muted)}
+.session-row__status{padding:6px 10px;border-radius:8px;font-weight:700;text-transform:capitalize;border:1px solid transparent}
+.session-row__status--scheduled{background:#e9f4ff;color:var(--gov-accent);border-color:#d9edf9}
+.session-row__status--live{background:#eaf7ef;color:var(--gov-ok);border-color:#dff0de}
+.session-row__status--rejected{background:#fff0f0;color:var(--gov-reject);border-color:#f4d6d6}
+
+/* review row */
+.review-row{display:flex;gap:12px;padding:10px;border-radius:8px;background:#fff9f2}
+.review-row__avatar{width:40px;height:40;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#fff3d9;color:#a56a00;font-weight:800}
+.review-row__content{flex:1}
+.review-row__name{font-weight:700}
+.review-row__time{color:var(--gov-muted);font-size:13px;margin-top:6px}
+
+/* recent activity */
+.activity-row{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f0f3f5}
+.activity-row__icon{width:40px;height:40;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f6f9fb}
+.activity-row__title{font-weight:700}
+.activity-row__meta{color:var(--gov-muted);font-size:13px}
+.activity-icon{width:16px;height:16px}
+.activity-reject{color:var(--gov-reject)}
+.activity-ok{color:var(--gov-ok)}
+.activity-warn{color:var(--gov-warning)}
+
+/* stats area */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat-value{font-weight:800;font-size:20px}
+.stat-label{color:var(--gov-muted);font-size:13px}
+
+/* responsive */
+@media (max-width: 980px){
+  .gov-sidebar{position:relative;width:100%;height:auto;flex-direction:row;align-items:center;padding:12px}
+  .gov-main{margin-left:0;padding:12px}
+  .gov-cards{grid-template-columns:repeat(2,1fr)}
+  .gov-grid{grid-template-columns:1fr}
+}

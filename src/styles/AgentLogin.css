@@ -1,0 +1,218 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.main{
+    background-color: #F9F7ED;
+}
+
+ 
+
+.left-panel {
+  flex: 1;
+  background: url('https://uaeid-stg.digitaltrusttech.com/enterprise-gateway-portal-new-uaeid/assets/images/Login-New-Bg.svg') no-repeat center center;
+  background-size: cover;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  padding: 20px;
+}
+
+.logo {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+.welcome-text {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.subtitle {
+  font-size: 16px;
+  text-align: center;
+  max-width: 300px;
+  line-height: 1.5;
+}
+
+.right-panel {
+  flex: 1;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.form-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 30px;
+  color: #333;
+}
+
+.input-group {
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #555;
+  font-weight: 500;
+}
+
+input {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 15px;
+}
+
+input:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.password-input {
+  position: relative;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  color: #777;
+  font-size: 14px;
+}
+
+.login-button {
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 5px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 10px;
+  transition: background-color 0.2s;
+}
+
+.login-button:hover {
+  background-color: #0052a3;
+}
+
+.divider {
+  text-align: center;
+  margin: 25px 0;
+  position: relative;
+}
+
+.divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 42%;
+  height: 1px;
+  background: #ddd;
+}
+
+.divider::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 42%;
+  height: 1px;
+  background: #ddd;
+}
+
+.divider-text {
+  display: inline-block;
+  padding: 0 10px;
+  background: white;
+  position: relative;
+  color: #777;
+  font-size: 14px;
+}
+
+.uaeid-login {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid #ddd;
+  padding: 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-bottom: 20px;
+  transition: background-color 0.2s;
+}
+
+.uaeid-login:hover {
+  background-color: #f9f9f9;
+}
+
+.uaeid-icon {
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+  background-color: #0066cc;
+  border-radius: 3px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.uaeid-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.signup-link {
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+  margin-top: 10px;
+}
+
+.signup-link a {
+  color: #0066cc;
+  text-decoration: none;
+}
+
+.signup-link a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 950px) {
+  .login-container {
+    width: 95%;
+    flex-direction: column;
+    height: auto;
+  }
+  
+  .left-panel {
+    min-height: 200px;
+  }
+}

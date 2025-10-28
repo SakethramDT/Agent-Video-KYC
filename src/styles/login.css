@@ -1,0 +1,245 @@
+/* Full-screen UAE background */
+/* Reset body to remove unwanted scrollbars */
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  /* overflow: hidden; */
+}
+
+/* Full-screen UAE background (lightened) */
+.login-container {
+  /* padding-top: 30px; */
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+   background: 
+     /* linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)),   */
+    url("/public/login.png") center center no-repeat ;
+  background-size: cover;
+  overflow: hidden; 
+  font-family: "Segoe UI", sans-serif;
+ 
+} 
+.login-container .overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 4.85);
+  z-index: 1;
+}
+/* .login-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: url("/public/login_background.png") center center no-repeat;
+  background-size: 100% 100%;  
+  
+  font-family: "Segoe UI", sans-serif;
+  overflow: hidden;
+} */
+
+
+
+/* Card */
+.login-card {
+  background: #fff;
+  padding: 2.25rem;
+  border-radius: 1.2rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+}
+
+/* Responsive card for smaller screens */
+@media (max-width: 768px) {
+  .login-card {
+    max-width: 90%;
+    padding: 1.8rem;
+    border-radius: 0.8rem;
+  }
+
+  .login-title {
+    font-size: 1.3rem;
+  }
+
+  .login-subtitle {
+    font-size: 0.8rem;
+  }
+
+  .login-input {
+    font-size: 0.85rem;
+    padding: 0.75rem;
+  }
+
+  .login-button,
+  .uaeid-button {
+    font-size: 0.9rem;
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    max-width: 95%;
+    padding: 1.5rem;
+  }
+
+  .login-title {
+    font-size: 1.1rem;
+  }
+
+  .login-subtitle {
+    font-size: 0.75rem;
+  }
+
+  .login-input {
+    font-size: 0.8rem;
+  }
+
+  .login-button,
+  .uaeid-button {
+    font-size: 0.85rem;
+    padding: 0.65rem;
+  }
+}
+
+/* Header */
+.login-logo {
+  width: 60px;
+  margin-bottom: 0.35rem;
+  height: 50px;
+  
+}
+
+.login-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #d4af37;
+  margin-bottom: 0.2rem;
+}
+
+.login-subtitle {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #444;
+  margin-bottom: 1.25rem;
+}
+
+/* Labels */
+.login-label {
+  text-align: left;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  color: #333;
+  display: block;
+}
+
+/* Form */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login-input {
+  padding: 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.login-input:focus {
+  border-color: #d4af37;
+  outline: none;
+  box-shadow: 0 0 4px rgba(212, 175, 55, 0.4);
+}
+
+/* Error */
+.login-error {
+  color: #e74c3c;
+  font-size: 0.85rem;
+  margin-top: -0.5rem;
+  text-align: left;
+}
+
+/* Buttons */
+.login-button {
+  padding: 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #d4af37, #b8860b);
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.login-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.divider {
+  margin: 1.5rem 0;
+  font-size: 0.85rem;
+  color: #777;
+  position: relative;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: #ddd;
+}
+
+.divider::before {
+  left: 0;
+}
+
+.divider::after {
+  right: 0;
+}
+
+/* UAEID button */
+.uaeid-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.uaeid-button:hover {
+  background: #f8f8f8;
+}
+
+.uaeid-icon {
+  width: 22px;
+  height: 22px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
