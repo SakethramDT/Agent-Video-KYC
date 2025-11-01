@@ -82,7 +82,7 @@ const KYCUserpdf = () => {
     <Document>
       <Page size="A4" style={styles.page}>
         {/* ✅ Watermark */}
-        <Image style={styles.watermark} src="/logo.png" />
+        <Image style={styles.watermark} src="/AgentVideoKyc/logo.png" />
 
         {/* ✅ Header */}
         <View style={styles.header}>

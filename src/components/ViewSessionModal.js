@@ -97,11 +97,26 @@ export default function ViewSessionModal({ session, onClose, currentUser }) {
               : null;
 
 
+          // Small helper to detect mime type from base64 prefix
+          const guessMime = (b64 = "") => {
+            if (b64.startsWith("/9j/")) return "image/jpeg";
+            if (b64.startsWith("iVBORw0K")) return "image/png";
+            return "image/png"; // default
+          };
+
           setImages({
-            frontDocument: docs.agent_document_front_base64,
-            backDocument: docs.agent_document_back_base64,
+            frontDocument: docs.agent_document_front_base64
+              ? `data:${guessMime(docs.agent_document_front_base64)};base64,${docs.agent_document_front_base64}`
+              : "",
+            backDocument: docs.agent_document_back_base64
+              ? `data:${guessMime(docs.agent_document_back_base64)};base64,${docs.agent_document_back_base64}`
+              : "",
             selfie: docs.captured_image_base64
+              ? `data:${guessMime(docs.captured_image_base64)};base64,${docs.captured_image_base64}`
+              : "",
           });
+
+          console.log(docs.agent_document_back_base64);
           await fetchScores();
 
           // Prepare images for verification (convert to array)

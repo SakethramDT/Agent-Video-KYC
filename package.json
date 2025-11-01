@@ -2,6 +2,7 @@
   "name": "agent-dashboard-ui",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/AgentVideoKyc",
   "dependencies": {
     "@mediapipe/face_detection": "^0.4.1646425229",
     "@mediapipe/face_mesh": "^0.4.1633559619",

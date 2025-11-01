@@ -60,7 +60,7 @@ const AgentLogin = ({ setLoggedInAgent }) => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <img src="/image.png" alt="UAEID Logo" className="login-logo" />
+          <img src="/AgentVideoKyc/image.png" alt="UAEID Logo" className="login-logo" />
           <h2 className="login-title">Welcome back!</h2>
           <p className="login-subtitle">Secure KYC Admin Portal</p>
         </div>
@@ -94,7 +94,7 @@ const AgentLogin = ({ setLoggedInAgent }) => {
         <div className="divider">Or Login with</div>
 
         <button className="uaeid-button">
-          <img src="/image.png" alt="UAEID" className="uaeid-icon" />
+          <img src="/AgentVideoKyc/image.png" alt="UAEID" className="uaeid-icon" />
           Sign in with UAEID
         </button>
       </div>

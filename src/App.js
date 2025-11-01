@@ -1,6 +1,6 @@
 // /mnt/data/App.js
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Outlet, useNavigate, Navigate } from 'react-router-dom';
+import {HashRouter, BrowserRouter as Router, Routes, Route, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import AgentLogin from './components/AgentLogin';
 import ProtectedRouteAdmin from './components/ProtectedRouteAdmin';
 import OfficerDashboard from './components/OfficerDashboard';
@@ -19,9 +19,9 @@ import './styles.css';
  */
 export default function AppWrapper() {
   return (
-    <Router>
+    <HashRouter>
       <App />
-    </Router>
+    </HashRouter>
   );
 }
 

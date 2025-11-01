@@ -156,8 +156,8 @@ const SIGNAL_SERVER_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 const API_BASE_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 
 // Replace with your live ngrok host
-const VERIFY_URL = 'https://8dcecb016c5f.ngrok-free.app/verify_images';
-const RESULT_URL = 'https://8dcecb016c5f.ngrok-free.app/result';
+const VERIFY_URL = 'https://3fed711b3302.ngrok-free.app/verify_images';
+const RESULT_URL = 'https://3fed711b3302.ngrok-free.app/result';
 
 export default function VideoCallModal({ roomId, agent, session, onClose }) {
   // call state
@@ -174,7 +174,8 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   const [scanningSide, setScanningSide] = useState(null); // 'front' | 'back' | null
   const [verifyMinimalResult, setVerifyMinimalResult] = useState(null);
   const faceAutoRef = useRef(null);
-
+  const userId = session?.sessionId || session?.id || '';
+  const userName = session?.name || 'User';
   const [captureKey, setCaptureKey] = useState(0);
   // media & rtc refs
   const localVideoRef = useRef(null);
@@ -190,6 +191,25 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   const lastHintRef = useRef({ msg: '', t: 0 });
   // === NEW: guidance mode + phase emitter ===
   const guidanceActiveRef = useRef(false);
+    // --- Sync refs to avoid stale state in async loops ---
+  const scanningSideRef = useRef(null);
+  // new: track last sent image ids so re-captures re-send
+  const lastSentIdsRef = useRef('');          // e.g. "faceId|frontId|backId"
+
+  // new: in-progress and abort control for polling/upload
+  const verifyInProgressRef = useRef(false);
+  const verifyAbortRef = useRef({ cancelled: false });
+  // Agent-side logging helper (put near top of file, after imports)
+  const AGENT_LOG = (...args) => {
+    try {
+      console.debug(new Date().toISOString(), '[AGENT][VideoCallModal]', ...args);
+    } catch (e) { /* ignore */ }
+  };
+
+  // Reset stability whenever scanning starts/stops
+  useEffect(() => {
+    stableRef.current = { box: null, count: 0, side: null, classId: null };
+  }, [scanningSide]);
 
   const sendPhaseToRemote = (phase, side) => {
     socketRef.current?.emit('ocr-phase', { roomId, from: userId, phase, side });
@@ -219,6 +239,10 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   const [faceResetTrigger, setFaceResetTrigger] = useState(0);
   // ONNX session
   const onnxSessionRef = useRef(null);
+  const capturedImagesRef = useRef(capturedImages);
+  useEffect(() => { capturedImagesRef.current = capturedImages; }, [capturedImages]);
+  useEffect(() => { scanningSideRef.current = scanningSide; }, [scanningSide]);
+  const isActiveSide = (side) => scanningSideRef.current && side === scanningSideRef.current;
 
   // verify flow sentinel
   const verifySentRef = useRef(false);
@@ -273,33 +297,92 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
 
 
   // trigger send → poll once all 3 exist
-  useEffect(() => {
-    const faceBlob = capturedImages.face?.blob;
-    const frontBlob = capturedImages.front_card?.blob;
-    const backBlob = capturedImages.back_card?.blob;
+ // trigger send → poll once all 3 exist AND when their ids change (handles recapture)
+useEffect(() => {
+  const faceBlob = capturedImages.face?.blob;
+  const frontBlob = capturedImages.front_card?.blob;
+  const backBlob = capturedImages.back_card?.blob;
 
-    if (faceBlob && frontBlob && backBlob && !verifySentRef.current) {
-      verifySentRef.current = true; // prevent duplicate sends
-      setOcrStatus('Uploading images for verification...');
+  const faceId = capturedImages.face?.id ?? '';
+  const frontId = capturedImages.front_card?.id ?? '';
+  const backId = capturedImages.back_card?.id ?? '';
 
-      (async () => {
-        try {
-          const taskId = await sendVerifyImages(frontBlob, backBlob, faceBlob);
-          setOcrStatus(`Images uploaded. Waiting for result (task: ${taskId})...`);
-          const minimal = await pollVerifyResult(taskId, userId);
-          setVerifyMinimalResult(minimal);
-          setOcrStatus('Verification complete.');
-        } catch (e) {
-          console.error(e);
-          setOcrStatus(`Verification failed: ${e.message}`);
-          verifySentRef.current = false; // allow retry
-        }
-      })();
+  const idsKey = `${faceId}|${frontId}|${backId}`;
+
+  // if not all present, nothing to do
+  if (!faceBlob || !frontBlob || !backBlob) {
+    // If any image was removed while a verification was in progress, cancel it
+    if (verifyInProgressRef.current) {
+      verifyAbortRef.current.cancelled = true;
+      verifyInProgressRef.current = false;
+      lastSentIdsRef.current = ''; // allow re-send later when images are back
     }
-  }, [capturedImages]);
+    return;
+  }
 
-  const userId = session?.sessionId || session?.id || '';
-  const userName = session?.name || 'User';
+  // If we've already sent these exact images (ids string), don't resend
+  if (idsKey === lastSentIdsRef.current) {
+    return;
+  }
+
+  // start fresh upload — cancel any previous poll/upload in progress
+  if (verifyInProgressRef.current) {
+    verifyAbortRef.current.cancelled = true;
+    // small delay not required; just mark cancelled and continue
+  }
+  verifyAbortRef.current = { cancelled: false };
+  verifyInProgressRef.current = true;
+
+  // remember we'll have sent these ids once we start (prevents races of concurrent starts)
+  lastSentIdsRef.current = idsKey;
+
+  setOcrStatus('Uploading images for verification...');
+  (async () => {
+    try {
+      const taskId = await sendVerifyImages(frontBlob, backBlob, faceBlob);
+
+      if (verifyAbortRef.current.cancelled) {
+        // aborted — bail out
+        console.log('[verify] aborted after upload (new capture arrived)');
+        verifyInProgressRef.current = false;
+        return;
+      }
+
+      setOcrStatus(`Images uploaded. Waiting for result (task: ${taskId})...`);
+
+      // poll with awareness of abort flag
+      const minimal = await pollVerifyResult(taskId, userId, {
+        interval: 2000,
+        maxAttempts: 20,
+        abortRef: verifyAbortRef
+      });
+
+      if (verifyAbortRef.current.cancelled) {
+        console.log('[verify] aborted after poll (new capture arrived)');
+        verifyInProgressRef.current = false;
+        return;
+      }
+
+      setVerifyMinimalResult(minimal);
+      setOcrStatus('Verification complete.');
+    } catch (e) {
+      console.error(e);
+      // If aborted, don't override lastSentIdsRef (we cleared it above when aborting)
+      if (verifyAbortRef.current.cancelled) {
+        console.log('[verify] upload/poll aborted:', e.message);
+      } else {
+        // allow retry/resend on next change by clearing lastSentIdsRef so effect can re-trigger
+        lastSentIdsRef.current = '';
+        setOcrStatus(`Verification failed: ${e.message}`);
+      }
+    } finally {
+      verifyInProgressRef.current = false;
+    }
+  })();
+}, [capturedImages, userId]); // re-run whenever capturedImages object changes
+
+
+  
 
   const rtcConfig = {
     iceServers: [
@@ -327,6 +410,8 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
       try {
         setOcrLoading(true);
         setOcrStatus('Loading ID detector...');
+        AGENT_LOG('Loading ONNX model from', MODEL_URL);
+
         ort.env.wasm.simd = true;
         const sess = await ort.InferenceSession.create(MODEL_URL, {
           executionProviders: ['wasm'],
@@ -337,6 +422,8 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
           return;
         }
         onnxSessionRef.current = sess;
+        AGENT_LOG('ONNX session created', { inputNames: sess.inputNames, outputNames: sess.outputNames, simd: ort.env.wasm.simd });
+
         setOcrStatus('ID detector loaded');
       } catch (e) {
         console.error('Failed to load ONNX model', e);
@@ -419,9 +506,14 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;AGENT_LOG('Attached local stream to localVideoRef', { videoReadyState: localVideoRef.current?.readyState });
+
       await initializeCall(stream);
-    } catch (e) {
+      AGENT_LOG('getUserMedia ok', { tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })) });
+
+    }
+     
+    catch (e) {
       console.error('Media access failed', e);
       setConnectionState('media_error');
       setErrorMessage('Camera/microphone access required. Please check permissions.');
@@ -429,152 +521,152 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   };
 
   // ===== Initialize WebRTC call (Agent side) =====
-const initializeCall = async (stream) => {
-  try {
-    setConnectionState('connecting');
+  const initializeCall = async (stream) => {
+    try {
+      setConnectionState('connecting');
 
-    // Create RTCPeerConnection
-    pcRef.current = new RTCPeerConnection(rtcConfig);
-    stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
+      // Create RTCPeerConnection
+      pcRef.current = new RTCPeerConnection(rtcConfig);
+      stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
 
-    // Handle remote media
-    pcRef.current.ontrack = (evt) => {
-      const remoteStream = evt.streams?.[0];
-      if (remoteStream && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-        setConnectionState('connected');
-      }
-    };
-
-    // Handle ICE candidates (local → server)
-    pcRef.current.onicecandidate = (evt) => {
-      if (evt.candidate && socketRef.current?.connected) {
-        socketRef.current.emit('ice-candidate', { candidate: evt.candidate, roomId, userId });
-      }
-    };
-
-    // ICE connection state change
-    pcRef.current.oniceconnectionstatechange = () => {
-      const s = pcRef.current?.iceConnectionState;
-      if (s === 'failed') pcRef.current?.restartIce();
-      else if (s === 'disconnected') setConnectionState('disconnected');
-    };
-
-    // Connect signaling socket
-    socketRef.current = io(SIGNAL_SERVER_URL, {
-      transports: ['websocket'],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-
-    // ---- SOCKET EVENTS ----
-
-    // On successful connection
-    socketRef.current.on('connect', () => {
-      console.log('Agent socket connected:', socketRef.current.id);
-      socketRef.current.emit('join-room', { roomId, userId, role: 'agent' });
-      setConnectionState('waiting_for_offer');
-    });
-
-    // When join is acknowledged
-    socketRef.current.on('joined', ({ roomId }) => {
-      console.log(`Joined room ${roomId}, emitting ready`);
-      socketRef.current.emit('ready', { roomId, userId });
-    });
-
-    // When user is ready — create and send offer
-    socketRef.current.on('ready', async ({ userId: remoteUserId }) => {
-      console.log('Agent received ready from', remoteUserId);
-
-      if (pcRef.current.signalingState !== 'stable') {
-        console.warn('Skipping offer since signalingState =', pcRef.current.signalingState);
-        return;
-      }
-
-      try {
-        const offer = await pcRef.current.createOffer();
-        await pcRef.current.setLocalDescription(offer);
-        socketRef.current.emit('offer', { offer, roomId, userId });
-        console.log('Agent sent offer to user:', remoteUserId);
-        setConnectionState('offer_sent');
-      } catch (err) {
-        console.error('Offer creation failed:', err);
-        setErrorMessage('Offer creation failed: ' + err.message);
-        setConnectionState('failed');
-      }
-    });
-
-    // When answer arrives from user
-    socketRef.current.on('answer', async ({ answer, senderId }) => {
-      try {
-        if (pcRef.current.signalingState === 'have-local-offer') {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log('Agent set remote description with answer');
+      // Handle remote media
+      pcRef.current.ontrack = (evt) => {
+        const remoteStream = evt.streams?.[0];
+        if (remoteStream && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
           setConnectionState('connected');
-        } else {
-          console.warn('Skipping answer, invalid state:', pcRef.current.signalingState);
         }
-      } catch (err) {
-        console.error('Failed to handle answer:', err);
-        setErrorMessage('Answer handling failed: ' + err.message);
-      }
-    });
+      };
 
-    // Handle remote ICE candidates
-    socketRef.current.on('ice-candidate', async ({ candidate }) => {
-      if (!candidate || !pcRef.current) return;
-      const ice = new RTCIceCandidate(candidate);
-      try {
-        if (pcRef.current.remoteDescription)
-          await pcRef.current.addIceCandidate(ice);
-        else
-          pendingCandidatesRef.current.push(ice);
-      } catch (err) {
-        console.warn('Error adding ICE candidate:', err);
-      }
-    });
+      // Handle ICE candidates (local → server)
+      pcRef.current.onicecandidate = (evt) => {
+        if (evt.candidate && socketRef.current?.connected) {
+          socketRef.current.emit('ice-candidate', { candidate: evt.candidate, roomId, userId });
+        }
+      };
 
-    // Handle call end from user
-    socketRef.current.on('call-ended', () => {
-      console.log('User ended the call');
-      cleanup();
-      setConnectionState('closed');
-    });
+      // ICE connection state change
+      pcRef.current.oniceconnectionstatechange = () => {
+        const s = pcRef.current?.iceConnectionState;
+        if (s === 'failed') pcRef.current?.restartIce();
+        else if (s === 'disconnected') setConnectionState('disconnected');
+      };
 
-    // Handle disconnection or error
-    socketRef.current.on('disconnect', () => {
-      console.warn('Agent socket disconnected');
-      setConnectionState('disconnected');
-    });
+      // Connect signaling socket
+      socketRef.current = io(SIGNAL_SERVER_URL, {
+        transports: ['websocket'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
 
-    socketRef.current.on('connect_error', (err) => {
-      console.error('Socket connection error:', err);
+      // ---- SOCKET EVENTS ----
+
+      // On successful connection
+      socketRef.current.on('connect', () => {
+        console.log('Agent socket connected:', socketRef.current.id);
+        socketRef.current.emit('join-room', { roomId, userId, role: 'agent' });
+        setConnectionState('waiting_for_offer');
+      });
+
+      // When join is acknowledged
+      socketRef.current.on('joined', ({ roomId }) => {
+        console.log(`Joined room ${roomId}, emitting ready`);
+        socketRef.current.emit('ready', { roomId, userId });
+      });
+
+      // When user is ready — create and send offer
+      socketRef.current.on('ready', async ({ userId: remoteUserId }) => {
+        console.log('Agent received ready from', remoteUserId);
+
+        if (pcRef.current.signalingState !== 'stable') {
+          console.warn('Skipping offer since signalingState =', pcRef.current.signalingState);
+          return;
+        }
+
+        try {
+          const offer = await pcRef.current.createOffer();
+          await pcRef.current.setLocalDescription(offer);
+          socketRef.current.emit('offer', { offer, roomId, userId });
+          console.log('Agent sent offer to user:', remoteUserId);
+          setConnectionState('offer_sent');
+        } catch (err) {
+          console.error('Offer creation failed:', err);
+          setErrorMessage('Offer creation failed: ' + err.message);
+          setConnectionState('failed');
+        }
+      });
+
+      // When answer arrives from user
+      socketRef.current.on('answer', async ({ answer, senderId }) => {
+        try {
+          if (pcRef.current.signalingState === 'have-local-offer') {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+            console.log('Agent set remote description with answer');
+            setConnectionState('connected');
+          } else {
+            console.warn('Skipping answer, invalid state:', pcRef.current.signalingState);
+          }
+        } catch (err) {
+          console.error('Failed to handle answer:', err);
+          setErrorMessage('Answer handling failed: ' + err.message);
+        }
+      });
+
+      // Handle remote ICE candidates
+      socketRef.current.on('ice-candidate', async ({ candidate }) => {
+        if (!candidate || !pcRef.current) return;
+        const ice = new RTCIceCandidate(candidate);
+        try {
+          if (pcRef.current.remoteDescription)
+            await pcRef.current.addIceCandidate(ice);
+          else
+            pendingCandidatesRef.current.push(ice);
+        } catch (err) {
+          console.warn('Error adding ICE candidate:', err);
+        }
+      });
+
+      // Handle call end from user
+      socketRef.current.on('call-ended', () => {
+        console.log('User ended the call');
+        cleanup();
+        setConnectionState('closed');
+      });
+
+      // Handle disconnection or error
+      socketRef.current.on('disconnect', () => {
+        console.warn('Agent socket disconnected');
+        setConnectionState('disconnected');
+      });
+
+      socketRef.current.on('connect_error', (err) => {
+        console.error('Socket connection error:', err);
+        setConnectionState('failed');
+        setErrorMessage('Connection error: ' + err.message);
+      });
+
+      // Handle offers from peer (edge case)
+      socketRef.current.on('offer', async ({ offer, senderId }) => {
+        const pc = pcRef.current;
+        if (!pc) return;
+
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current.emit('answer', { answer, roomId, userId });
+          console.log('Processed secondary offer → sent answer');
+        } catch (err) {
+          console.error('Failed handling incoming offer:', err);
+        }
+      });
+
+    } catch (err) {
+      console.error('initializeCall Error:', err);
+      setErrorMessage('Call setup failed: ' + err.message);
       setConnectionState('failed');
-      setErrorMessage('Connection error: ' + err.message);
-    });
-
-    // Handle offers from peer (edge case)
-    socketRef.current.on('offer', async ({ offer, senderId }) => {
-      const pc = pcRef.current;
-      if (!pc) return;
-
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socketRef.current.emit('answer', { answer, roomId, userId });
-        console.log('Processed secondary offer → sent answer');
-      } catch (err) {
-        console.error('Failed handling incoming offer:', err);
-      }
-    });
-
-  } catch (err) {
-    console.error('initializeCall Error:', err);
-    setErrorMessage('Call setup failed: ' + err.message);
-    setConnectionState('failed');
-  }
-};
+    }
+  };
 
   // ===== Auto ID scan orchestration =====
   useEffect(() => {
@@ -673,41 +765,74 @@ const initializeCall = async (stream) => {
     }
   }
 
-  async function pollVerifyResult(taskId, userId, { interval = 2000, maxAttempts = 20 } = {}) {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const result = await fetchVerifyResult(taskId);
-      const hasAll = result.face_1N_verification.matches_found !== null &&
-        result.face_verification.matched !== null &&
-        result.face_verification.score !== null &&
-        result.liveness.score !== null;
-      if (hasAll) {
-        try {
-          console.log("->->", userId, typeof (userId));
-          const saveRes = await fetch(`${API_BASE_URL}/api/verification-results`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: (userId),
-              result: {
-                face_1N_verification: result.face_1N_verification,
-                face_verification: result.face_verification,
-                liveness: result.liveness,
-              }
-            })
-          });
-          if (!saveRes.ok) {
-            const raw = await saveRes.text().catch(() => '');
-            console.warn('Verification save failed:', raw);
-          }
-        } catch (err) {
-          console.warn('Error saving result:', err.message);
-        }
-        return result;
-      }
-      await new Promise(resolve => setTimeout(resolve, interval));
+  async function pollVerifyResult(taskId, userId, { interval = 2000, maxAttempts = 20, abortRef = { cancelled: false } } = {}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (abortRef.cancelled) {
+      throw new Error('Polling aborted');
     }
-    throw new Error('Verification timed out');
+
+    const result = await fetchVerifyResult(taskId);
+
+    if (abortRef.cancelled) {
+      throw new Error('Polling aborted');
+    }
+
+    const hasAll = result.face_1N_verification.matches_found !== null &&
+      result.face_verification.matched !== null &&
+      result.face_verification.score !== null &&
+      result.liveness.score !== null;
+
+    if (hasAll) {
+      try {
+        // Save the result to your API (with existing behavior)
+        const saveRes = await fetch(`${API_BASE_URL}/api/verification-results`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: (userId),
+            result: {
+              face_1N_verification: result.face_1N_verification,
+              face_verification: result.face_verification,
+              liveness: result.liveness,
+            }
+          })
+        });
+        if (!saveRes.ok) {
+          const raw = await saveRes.text().catch(() => '');
+          console.warn('Verification save failed:', raw);
+        }
+      } catch (err) {
+        console.warn('Error saving result:', err.message);
+      }
+      return result;
+    }
+
+    // wait before next poll; check abort during waiting
+    await new Promise(resolve => {
+      const to = setTimeout(resolve, interval);
+      // if aborted while waiting, clear timeout and resolve early
+      const checkAbort = () => {
+        if (abortRef.cancelled) {
+          clearTimeout(to);
+          resolve();
+        } else {
+          // no-op
+        }
+      };
+      // small interval poll for abort (keeps implementation simple)
+      const intCheck = setInterval(() => {
+        if (abortRef.cancelled) {
+          clearInterval(intCheck);
+          clearTimeout(to);
+          resolve();
+        }
+      }, 200);
+    });
   }
+
+  throw new Error('Verification timed out');
+}
+
 
   // ===== NEW: stricter heuristics to prevent non-ID captures =====
   function passesCardHeuristics(side, cropBoxOrig, meta, outCanvas, score, classId) {
@@ -747,17 +872,18 @@ const initializeCall = async (stream) => {
 
   // ===== Core scan (with letterbox + robust checks + stability) =====
   const scanFrame = async (side, delayFirst = false) => {
+    if (!isActiveSide(side)) return;
     const session = onnxSessionRef.current;
     const video = remoteVideoRef.current;
     const canvas = canvasRef.current;
     if (!session || !video || !video.srcObject || !canvas) return;
 
-    if (video.readyState !== 4) {
-      setTimeout(() => scanFrame(side, false), 600);
+     if (video.readyState !== 4) {
+      if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 600);
       return;
     }
     if (delayFirst) await new Promise((r) => setTimeout(r, 800));
-
+    if (!isActiveSide(side)) return;
     const IMG_SIZE = 640;
     canvas.width = IMG_SIZE; canvas.height = IMG_SIZE;
     const ctx = canvas.getContext('2d');
@@ -797,12 +923,12 @@ const initializeCall = async (stream) => {
           }
         } else {
           setOcrStatus('Unexpected detector output shape');
-          setTimeout(() => scanFrame(side, false), 800);
+          if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 800);
           return;
         }
       } else {
         setOcrStatus('Detector output shape error');
-        setTimeout(() => scanFrame(side, false), 800);
+        if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 800);
         return;
       }
 
@@ -820,7 +946,7 @@ const initializeCall = async (stream) => {
 
       if (!boxesF_norm.length) {
         setOcrStatus(`Hold steady… detecting ${side} ID`);
-        setTimeout(() => scanFrame(side, false), 120);
+        if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 120);
         return;
       }
 
@@ -865,7 +991,7 @@ const initializeCall = async (stream) => {
 
       if (!crop640) {
         setOcrStatus(`Show the ${side} side clearly (good light, fill frame)`);
-        setTimeout(() => scanFrame(side, false), 150);
+        if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 150);
         return;
       }
 
@@ -876,7 +1002,7 @@ const initializeCall = async (stream) => {
 
       if (cropW <= 0 || cropH <= 0) {
         setOcrStatus(`Reposition the ${side} side in frame`);
-        setTimeout(() => scanFrame(side, false), 150);
+        if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 150);
         return;
       }
 
@@ -899,7 +1025,7 @@ const initializeCall = async (stream) => {
         if (!reasons.notBlurry) msg.push('avoid blur');
         if (!reasons.lit) msg.push('more light');
         setOcrStatus(msg.length ? msg.join(' • ') : 'Align the card horizontally');
-        setTimeout(() => scanFrame(side, false), 120);
+        if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 120);
         return;
       }
 
@@ -920,13 +1046,20 @@ const initializeCall = async (stream) => {
       stableRef.current = { box: null, count: 0, side: null, classId: null }; // reset stability for next scan
 
       // Chain to back after front
-      if (side === 'front' && !capturedImages.back_card) {
-        setTimeout(() => setScanningSide('back'), 600);
+     if (side === 'front') {
+        if (!capturedImagesRef.current.back_card) {
+          setTimeout(() => {
+            // only start back scan if user hasn't started another scan and back is still missing
+            if (!capturedImagesRef.current.back_card && !scanningSideRef.current) {
+              setScanningSide('back');
+            }
+          }, 600);
+        }
       }
     } catch (e) {
       console.error('ONNX inference error', e);
       setOcrStatus('Processing error. Retrying…');
-      setTimeout(() => scanFrame(side, false), 250);
+      if (isActiveSide(side)) setTimeout(() => scanFrame(side, false), 250);
     }
   };
 
@@ -959,34 +1092,61 @@ const initializeCall = async (stream) => {
   };
 
   // (Optional) legacy save to your server
-  const saveAllImagesToDatabase = async () => {
-    setIsSavingImage(true);
-    const blobToBase64 = (blob) => new Promise((resolve) => {
-      if (!blob) return resolve(null);
-      const r = new FileReader();
-      r.onloadend = () => resolve((r.result || '').toString());
-      r.readAsDataURL(blob);
+  // (Updated) save to your server
+ const saveAllImagesToDatabase = async () => {
+  setIsSavingImage(true);
+
+  const blobToBase64 = (blob) =>
+    new Promise((resolve) => {
+      if (!blob) return resolve("");
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        let result = (reader.result || "").toString();
+        // Remove the "data:image/...;base64," prefix if it exists
+        const base64 = result.replace(/^data:.*;base64,/, "");
+        resolve(base64);
+      };
+      reader.readAsDataURL(blob);
     });
-    try {
-      const [frontB64, backB64, faceB64] = await Promise.all([
-        blobToBase64(capturedImages.front_card?.blob),
-        blobToBase64(capturedImages.back_card?.blob),
-        blobToBase64(capturedImages.face?.blob)
-      ]);
-      const res = await fetch(`${API_BASE_URL}/api/call-images`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, userId, images: { front: frontB64, back: backB64, face: faceB64 } })
-      });
-      if (!res.ok) throw new Error('Failed to save images');
-      setOcrStatus('Images saved to server');
-    } catch (e) {
-      console.error(e);
-      setOcrStatus('Save failed');
-    } finally {
-      setIsSavingImage(false);
-    }
-  };
+
+  try {
+    // Convert all blobs to plain Base64
+    const [frontB64, backB64, faceB64] = await Promise.all([
+      blobToBase64(capturedImages.front_card?.blob),
+      blobToBase64(capturedImages.back_card?.blob),
+      blobToBase64(capturedImages.face?.blob),
+    ]);
+
+    // Prepare payload as required
+    const payload = {
+      user_id: userId || "",
+      agent_document_front_base64: frontB64 || "",
+      agent_document_back_base64: backB64 || "",
+      captured_image_base64: faceB64 || "",
+    };
+
+    console.log("Payload to send:", payload);
+
+    // Send request
+    const res = await fetch(
+      "https://staging.digitaltrusttech.com/face-bknd/uploadimages",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    if (!res.ok) throw new Error("Failed to save images");
+    setOcrStatus("Images saved to server");
+  } catch (e) {
+    console.error(e);
+    setOcrStatus("Save failed");
+  } finally {
+    setIsSavingImage(false);
+  }
+};
+
 
   // ===== UI helpers =====
   const connectionStatusText = (
@@ -1140,30 +1300,28 @@ const initializeCall = async (stream) => {
               overlayCanvasRef={faceOverlayRef}
               connectionState={connectionState}
               enabled={connectionState === 'connected' && !isVideoOff && !capturedImages.face}
-              onFaceCaptured={async (img) => {
-                try {
-                  console.log('[modal] onFaceCaptured', img);
+                onFaceCaptured={async (img) => {
+                  try {
+                    console.log('[modal] onFaceCaptured', img);
 
-                  // 1) store captured image locally (prevents FaceAutoCapture from re-running)
-                  setCapturedImages(prev => ({ ...prev, face: img }));
-                  // 3) clear any scanning side so OCR does not start right away
-                  // setScanningSide(null);
-                  // // 5) only after a short delay start front-side ID scanning
-                  // const delayMs = 1000; // tweak (1200-2000ms) to taste
-                  // setTimeout(() => {
-                  //   // ensure face still exists and we haven't been reset
-                  //   setScanningSide('front');
-                  //   // optionally set OCR status to something like 'Place front side in the frame'
-                  //   setOcrStatus('Place front side in the frame');
-                  // }, delayMs);
+                    // store captured face locally
+                    setCapturedImages(prev => ({ ...prev, face: img }));
 
-                } catch (err) {
-                  console.error('[modal] onFaceCaptured error', err);
-                  // ensure we still set the captured image to avoid infinite re-detection
-                  // setCapturedImages(prev => ({ ...prev, face: img }));
-                  setOcrStatus('face-captured');
-                }
-              }}
+                    // clear any running scanning side and then start front scan
+                    setScanningSide(null);                      // clear any previous scanner
+                    setTimeout(() => {
+                      // safety: only start front if user didn't cancel in the meantime
+                      if (!capturedImagesRef.current.front_card) {
+                        setScanningSide('front');               // will trigger scanFrame('front')
+                      }
+                    }, 600); // small delay to let UI show face preview
+                    setOcrStatus('Face captured — scanning front ID…');
+                  } catch (err) {
+                    console.error('[modal] onFaceCaptured error', err);
+                    setOcrStatus('Face captured');
+                  }
+                }}
+
               setStatus={setOcrStatus}
             />
 
@@ -1238,52 +1396,96 @@ const initializeCall = async (stream) => {
         <div className="vc-captures-panel">
           <div className="vc-captures-header"><Camera size={20} />Captured Images</div>
           <div className="vc-captures-container">
-            {['face', 'front_card', 'back_card'].map((t) => (
-              <div key={t} className={`vc-capture-item ${activeCaptureType === t ? 'active' : ''}`} onClick={() => setActiveCaptureType(t)}>
-                {capturedImages[t] ? (
-                  <>
-                    <img src={capturedImages[t].url} alt={`${getCaptureTypeLabel(t)} capture`} className="vc-capture-image" />
-                    <div className="vc-capture-actions">
-                      <button
-                        className="vc-recapture-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // revoke old blob URL
-                          URL.revokeObjectURL(capturedImages[t].url);
+  {['face', 'front_card', 'back_card'].map((t) => (
+    <div
+      key={t}
+      className={`vc-capture-item ${activeCaptureType === t ? 'active' : ''}`}
+      onClick={() => setActiveCaptureType(t)}
+    >
+      {capturedImages[t] ? (
+        <>
+          <img
+            src={capturedImages[t].url}
+            alt={`${getCaptureTypeLabel(t)} capture`}
+            className="vc-capture-image"
+          />
 
-                          // clear the captured image
-                          setCapturedImages((p) => ({ ...p, [t]: null }));
+          <div className="vc-capture-actions">
+            <button
+              className="vc-recapture-btn"
+              title="Recapture"
+              onClick={(e) => {
+                e.stopPropagation();
 
-                          // set this capture type as active again
-                          setActiveCaptureType(t);
-                          setOcrStatus('recapture');
-                          setOcrStatus('recapture');
-                          setOcrStatus('recapture');
+                // revoke old blob URL if present
+                try { if (capturedImages[t]?.url) URL.revokeObjectURL(capturedImages[t].url); } catch (err) { /* ignore */ }
 
+                // Clear the captured image from state (and ref will sync via effect)
+                setCapturedImages((prev) => ({ ...prev, [t]: null }));
 
-                          // tell FaceAutoCapture to reset its counters + face lock
-                          if (t === 'face' && faceAutoRef.current) {
-                            faceAutoRef.current.reset();
-                          }
-                        }}
-                        title="Recapture"
-                      >
-                        <RotateCcw size={14} />
-                      </button>
-                    </div>
+                // Make this tile active in UI
+                setActiveCaptureType(t);
 
-                    <div className="vc-capture-label">{getCaptureTypeLabel(t)}</div>
-                  </>
-                ) : (
-                  <div className="vc-capture-placeholder">
-                    <div style={{ marginBottom: 8 }}><Camera size={24} /></div>
-                    {getCaptureTypeLabel(t)}
-                    <div style={{ fontSize: 10, marginTop: 5 }}>Not captured</div>
-                  </div>
-                )}
-              </div>
-            ))}
+                // Reset stability counters so old detections don't bleed over
+                if (stableRef && stableRef.current) {
+                  stableRef.current = { box: null, count: 0, side: null, classId: null };
+                }
+
+                // Clear any OCR status and set a friendly one
+                if (t === 'face') {
+                  setOcrStatus('Recapturing face…');
+
+                  // Ensure we don't have card scanning running while re-capturing face
+                  setScanningSide(null);
+
+                  // Reset the FaceAutoCapture internals (it should be implemented with useImperativeHandle)
+                  try {
+                    faceAutoRef.current?.reset?.();
+                  } catch (err) { console.warn('face reset failed', err); }
+
+                  // Small delay to let UI update — FaceAutoCapture will auto-start because capturedImages.face is now null
+                  setTimeout(() => {
+                    // no-op required: the FaceAutoCapture component will detect face automatically based on props
+                    // but keep scanningSide cleared to prioritize face mode
+                    if (!scanningSideRef.current) {
+                      setScanningSide(null);
+                    }
+                  }, 80);
+                } else {
+                  // front_card or back_card
+                  setOcrStatus(`Recapturing ${t === 'front_card' ? 'front ID' : 'back ID'}…`);
+
+                  // Start the appropriate automatic card scan after a short delay
+                  const targetSide = t === 'front_card' ? 'front' : 'back';
+
+                  // Clear face scanning if any, and start target card scanning
+                  setScanningSide(null);
+                  setTimeout(() => {
+                    // Only start if user hasn't manually started/stopped another scan
+                    if (!scanningSideRef.current) {
+                      setScanningSide(targetSide);
+                    }
+                  }, 120);
+                }
+              }}
+            >
+              <RotateCcw size={14} />
+            </button>
           </div>
+
+          <div className="vc-capture-label">{getCaptureTypeLabel(t)}</div>
+        </>
+      ) : (
+        <div className="vc-capture-placeholder">
+          <div style={{ marginBottom: 8 }}><Camera size={24} /></div>
+          {getCaptureTypeLabel(t)}
+          <div style={{ fontSize: 10, marginTop: 5 }}>Not captured</div>
+        </div>
+      )}
+    </div>
+  ))}
+</div>
+
         </div>
       </div>
 
