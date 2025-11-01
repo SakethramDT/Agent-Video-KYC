@@ -151,7 +151,7 @@ function unletterboxBox([x1, y1, x2, y2], meta, clamp = true) {
 }
 
 // ===== Constants =====
-const MODEL_URL = '/models/id.onnx'; // ensure file exists at public/models/id.onnx
+const MODEL_URL = '/AgentVideoKyc/models/id.onnx'; // ensure file exists at public/models/id.onnx
 const SIGNAL_SERVER_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 const API_BASE_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 
@@ -173,6 +173,7 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [scanningSide, setScanningSide] = useState(null); // 'front' | 'back' | null
   const [verifyMinimalResult, setVerifyMinimalResult] = useState(null);
+  const [toast, setToast] = useState({ msg: '', visible: false });
   const faceAutoRef = useRef(null);
   const userId = session?.sessionId || session?.id || '';
   const userName = session?.name || 'User';
@@ -180,6 +181,22 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
   // media & rtc refs
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+    // toast state (added)
+  
+  const toastTimerRef = useRef(null);
+
+  const showToast = (message, duration = 2000) => {
+    // clear previous timer
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setToast({ msg: message, visible: true });
+    toastTimerRef.current = setTimeout(() => {
+      setToast({ msg: '', visible: false });
+      toastTimerRef.current = null;
+    }, duration);
+  };
 
   const faceOverlayRef = useRef(null); // added overlay canvas ref
   const canvasRef = useRef(null);
@@ -223,6 +240,12 @@ export default function VideoCallModal({ roomId, agent, session, onClose }) {
       console.warn('[VideoCallModal] emitSocket error:', err);
     }
   };
+  // near other helpers in VideoCallModal, e.g. after emitSocket
+  function emitAgentCaptured(type) {
+    // type: 'face'|'front_card'|'back_card'
+    if (!socketRef.current?.connected) return;
+    socketRef.current.emit('agent-captured', { roomId, type });
+  }
 
   const handleFaceCaptured = React.useCallback((imgObj) => {
     setCapturedImages(p => ({ ...p, face: imgObj }));
@@ -551,10 +574,12 @@ useEffect(() => {
         if (s === 'failed') pcRef.current?.restartIce();
         else if (s === 'disconnected') setConnectionState('disconnected');
       };
+      console.log('[VideoCall] SIGNAL_SERVER_URL=', SIGNAL_SERVER_URL);
 
       // Connect signaling socket
-      socketRef.current = io(SIGNAL_SERVER_URL, {
-        transports: ['websocket'],
+      socketRef.current = io("https://uaeid-stg.digitaltrusttech.com:3000", {
+        path: '/videokyc/socket.io',         
+        transports: ['websocket','polling'],
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
       });
@@ -1035,6 +1060,7 @@ useEffect(() => {
       const url = URL.createObjectURL(blob);
       const imgObj = { id: Date.now(), url, blob, timestamp: new Date().toISOString(), type: side === 'front' ? 'front_card' : 'back_card' };
       setCapturedImages((prev) => ({ ...prev, [side === 'front' ? 'front_card' : 'back_card']: imgObj }));
+      emitAgentCaptured(side === 'front' ? 'front_card' : 'back_card');
 
       setPreviewImage(imgObj);
       setShowImagePreview(true);
@@ -1306,7 +1332,7 @@ useEffect(() => {
 
                     // store captured face locally
                     setCapturedImages(prev => ({ ...prev, face: img }));
-
+                    emitAgentCaptured('face');
                     // clear any running scanning side and then start front scan
                     setScanningSide(null);                      // clear any previous scanner
                     setTimeout(() => {
