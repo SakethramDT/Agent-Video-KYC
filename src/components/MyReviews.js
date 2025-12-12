@@ -89,7 +89,7 @@ const MyReviews = ({
     }
   };
   async function downloadKycPdf(userId) {
-  const resp = await fetch(`http://164.52.217.141:5000/api/kyc/pdf?userId=${userId}`);
+  const resp = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/kyc/pdf?userId=${userId}`);
   if (!resp.ok) throw new Error("PDF generation failed");
   const blob = await resp.blob();
   const url = window.URL.createObjectURL(blob);

@@ -57,10 +57,10 @@ const IDVOfficerDashboard = () => {
   const fetchDashboard = async (signal) => {
     setError(null);
     try {
-      const base = 'http://164.52.217.141:5000/api/officer/dashboard';
+      const base = `${process.env.REACT_APP_BACKEND_URL}/api/officer/dashboard`;
       const url = loggedInAgent ? `${base}?agent_id=${encodeURIComponent(loggedInAgent)}` : base;
       const resp = await fetch(url, { method: 'GET', credentials: 'same-origin', signal });
-
+      
       // Non-OK statuses: read text for diagnostics
       if (!resp.ok) {
         const text = await resp.text();
@@ -75,6 +75,7 @@ const IDVOfficerDashboard = () => {
       }
 
       const json = await resp.json();
+      console.log(json);
       if (!json.ok || !json.data) throw new Error(json.error || 'Invalid API response');
 
       const { sessions: sess, pendingReviews: pending, recentActivity: recent, stats: st, performance: perf } = json.data;
@@ -116,6 +117,7 @@ const IDVOfficerDashboard = () => {
         pendingReviewCount: st?.pendingReviewCount ?? 0,
         completedToday: st?.completedToday ?? 0
       });
+      
       setPerformance({
         successRate: perf?.successRate ?? '0%',
         avgDurationMinutes: perf?.avgDurationMinutes ?? 'N/A',
@@ -170,7 +172,7 @@ const IDVOfficerDashboard = () => {
 
   const handleLogout = () => {
     localStorage.removeItem('kycAgent');
-    window.location.replace('/login');
+    window.location.replace('/AgentVideoKyc/');
   };
 
   /* =========================

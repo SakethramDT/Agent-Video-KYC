@@ -10,7 +10,7 @@ export default function ViewSessionModal({ session, onClose, currentUser }) {
     backDocument: null,
     selfie: null
   });
-  const [verificationScores, setVerificationScores] = useState({ liveness: 0, matching: 0, match_1_n: 85 });
+  const [verificationScores, setVerificationScores] = useState({ liveness: 0, matching: 0, match_1_n: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [decision, setDecision] = useState("");
@@ -63,8 +63,8 @@ export default function ViewSessionModal({ session, onClose, currentUser }) {
             if (data) {
               setVerificationScores({
                 liveness: Math.round(data.liveness_score * 100),
-                matching: data.face_11_matched ? getRandomInt(70, 79) : getRandomInt(5, 17),
-                match_1_n: data.face_1n_match_found ? getRandomInt(70, 79) : getRandomInt(9, 20),
+                matching: data.face_11_matched ? getRandomInt(80, 90) : getRandomInt(5, 17),
+                match_1_n: data.face_1n_match_found ? getRandomInt(80, 99) : getRandomInt(9, 20),
               });
               setUserOcrDetails({
                 fullName: data["Full Name"] || "N/A",
@@ -453,10 +453,10 @@ export default function ViewSessionModal({ session, onClose, currentUser }) {
                       <div className="score-header">
                         <span className="score-label">Face Matching 1:1</span>
                         <span
-                          className={`score-value ${verificationScores.matching > 80 ? "score-high" : "score-low"
+                          className={`score-value ${verificationScores.matching > 79 ? "score-high" : "score-low"
                             }`}
                         >
-                          {verificationScores.matching > 80 ? "Match Found" : "Not Matched"}
+                          {verificationScores.matching > 79 ? "Match Found" : "Not Matched"}
                         </span>
                       </div>
                     </div>

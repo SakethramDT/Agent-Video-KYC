@@ -156,8 +156,8 @@ const SIGNAL_SERVER_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 const API_BASE_URL = `${process.env.REACT_APP_BACKEND_URL}`;
 
 // Replace with your live ngrok host
-const VERIFY_URL = 'https://3fed711b3302.ngrok-free.app/verify_images';
-const RESULT_URL = 'https://3fed711b3302.ngrok-free.app/result';
+const VERIFY_URL = 'https://23bb20d42dee.ngrok-free.app/verify_images';
+const RESULT_URL = 'https://23bb20d42dee.ngrok-free.app/result';
 
 export default function VideoCallModal({ roomId, agent, session, onClose }) {
   // call state
@@ -544,154 +544,209 @@ useEffect(() => {
   };
 
   // ===== Initialize WebRTC call (Agent side) =====
-  const initializeCall = async (stream) => {
-    try {
-      setConnectionState('connecting');
+const initializeCall = async (stream) => {
+  try {
+    setConnectionState('connecting');
 
-      // Create RTCPeerConnection
-      pcRef.current = new RTCPeerConnection(rtcConfig);
-      stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
+    // Create RTCPeerConnection
+    pcRef.current = new RTCPeerConnection(rtcConfig);
+    stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
 
-      // Handle remote media
-      pcRef.current.ontrack = (evt) => {
-        const remoteStream = evt.streams?.[0];
-        if (remoteStream && remoteVideoRef.current) {
+    // Handle remote media (robust)
+    pcRef.current.ontrack = (evt) => {
+      try {
+        console.debug('[pc] ontrack', evt);
+        let remoteStream = (evt.streams && evt.streams[0]) || null;
+
+        // If the track arrived without a stream, build one and attach the track(s)
+        if (!remoteStream) {
+          remoteStream = new MediaStream();
+          if (evt.track) remoteStream.addTrack(evt.track);
+        }
+
+        if (remoteVideoRef.current) {
+          // Muting often allows autoplay; keep muted so browser doesn't block playback.
+          // If you want audio, unmute after a user gesture.
+          remoteVideoRef.current.muted = true;
           remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play().catch((err) => {
+            console.debug('[remoteVideo] play() blocked or failed', err);
+          });
           setConnectionState('connected');
         }
-      };
+      } catch (err) {
+        console.warn('[pc] ontrack handler error', err);
+      }
+    };
 
-      // Handle ICE candidates (local → server)
-      pcRef.current.onicecandidate = (evt) => {
+    // Handle ICE candidates (local → server)
+    pcRef.current.onicecandidate = (evt) => {
+      try {
         if (evt.candidate && socketRef.current?.connected) {
           socketRef.current.emit('ice-candidate', { candidate: evt.candidate, roomId, userId });
         }
-      };
+      } catch (err) {
+        console.warn('[pc] onicecandidate error', err);
+      }
+    };
 
-      // ICE connection state change
-      pcRef.current.oniceconnectionstatechange = () => {
-        const s = pcRef.current?.iceConnectionState;
-        if (s === 'failed') pcRef.current?.restartIce();
-        else if (s === 'disconnected') setConnectionState('disconnected');
-      };
-      console.log('[VideoCall] SIGNAL_SERVER_URL=', SIGNAL_SERVER_URL);
+    // ICE connection state change
+    pcRef.current.oniceconnectionstatechange = () => {
+      const s = pcRef.current?.iceConnectionState;
+      console.debug('[pc] iceConnectionState', s);
+      if (s === 'failed') pcRef.current?.restartIce();
+      else if (s === 'disconnected') setConnectionState('disconnected');
+    };
 
-      // Connect signaling socket
-      socketRef.current = io("https://uaeid-stg.digitaltrusttech.com:3000", {
-        path: '/videokyc/socket.io',         
-        transports: ['websocket','polling'],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      });
+    console.log('[VideoCall] SIGNAL_SERVER_URL=', SIGNAL_SERVER_URL);
 
-      // ---- SOCKET EVENTS ----
+    // Connect signaling socket
+    socketRef.current = io("https://uaeid-stg.digitaltrusttech.com:3000", {
+      path: '/videokyc/socket.io',
+      transports: ['websocket','polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
 
-      // On successful connection
-      socketRef.current.on('connect', () => {
-        console.log('Agent socket connected:', socketRef.current.id);
-        socketRef.current.emit('join-room', { roomId, userId, role: 'agent' });
-        setConnectionState('waiting_for_offer');
-      });
-
-      // When join is acknowledged
-      socketRef.current.on('joined', ({ roomId }) => {
-        console.log(`Joined room ${roomId}, emitting ready`);
-        socketRef.current.emit('ready', { roomId, userId });
-      });
-
-      // When user is ready — create and send offer
-      socketRef.current.on('ready', async ({ userId: remoteUserId }) => {
-        console.log('Agent received ready from', remoteUserId);
-
-        if (pcRef.current.signalingState !== 'stable') {
-          console.warn('Skipping offer since signalingState =', pcRef.current.signalingState);
-          return;
-        }
-
+    // Helper to add any pending remote ICE candidates once remoteDescription exists
+    const drainPendingCandidates = async () => {
+      if (!pendingCandidatesRef.current?.length) return;
+      console.debug('[pc] draining pending candidates:', pendingCandidatesRef.current.length);
+      const toAdd = pendingCandidatesRef.current.slice();
+      pendingCandidatesRef.current = [];
+      for (const c of toAdd) {
         try {
-          const offer = await pcRef.current.createOffer();
-          await pcRef.current.setLocalDescription(offer);
-          socketRef.current.emit('offer', { offer, roomId, userId });
-          console.log('Agent sent offer to user:', remoteUserId);
-          setConnectionState('offer_sent');
+          await pcRef.current.addIceCandidate(c);
         } catch (err) {
-          console.error('Offer creation failed:', err);
-          setErrorMessage('Offer creation failed: ' + err.message);
-          setConnectionState('failed');
+          console.warn('[pc] addIceCandidate failed while draining', err);
         }
-      });
+      }
+    };
 
-      // When answer arrives from user
-      socketRef.current.on('answer', async ({ answer, senderId }) => {
-        try {
-          if (pcRef.current.signalingState === 'have-local-offer') {
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-            console.log('Agent set remote description with answer');
-            setConnectionState('connected');
-          } else {
-            console.warn('Skipping answer, invalid state:', pcRef.current.signalingState);
-          }
-        } catch (err) {
-          console.error('Failed to handle answer:', err);
-          setErrorMessage('Answer handling failed: ' + err.message);
+    // ---- SOCKET EVENTS ----
+
+    // On successful connection
+    socketRef.current.on('connect', () => {
+      console.log('Agent socket connected:', socketRef.current.id);
+      socketRef.current.emit('join-room', { roomId, userId, role: 'agent' });
+      setConnectionState('waiting_for_offer');
+    });
+
+    // When join is acknowledged
+    // socketRef.current.on('joined', ({ roomId: r }) => {
+    //   console.log(`Joined room ${r}, emitting ready`);
+    //   socketRef.current.emit('ready', { roomId, userId });
+    // });
+
+    // When user is ready — create and send offer
+    socketRef.current.on('ready', async ({ userId: remoteUserId }) => {
+      console.log('Agent received ready from', remoteUserId);
+
+      if (pcRef.current.signalingState !== 'stable') {
+        console.warn('Skipping offer since signalingState =', pcRef.current.signalingState);
+        return;
+      }
+
+      try {
+        const offer = await pcRef.current.createOffer();
+        await pcRef.current.setLocalDescription(offer);
+        socketRef.current.emit('offer', { offer, roomId, userId });
+        console.log('Agent sent offer to user:', remoteUserId);
+        setConnectionState('offer_sent');
+      } catch (err) {
+        console.error('Offer creation failed:', err);
+        setErrorMessage('Offer creation failed: ' + err.message);
+        setConnectionState('failed');
+      }
+    });
+
+    // When answer arrives from user
+    socketRef.current.on('answer', async ({ answer, senderId }) => {
+      try {
+        console.debug('[socket] received answer', senderId);
+        if (!pcRef.current) return;
+
+        if (pcRef.current.signalingState === 'have-local-offer' || pcRef.current.signalingState === 'stable') {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          // Drain any pending candidates that arrived earlier
+          await drainPendingCandidates();
+          console.log('Agent set remote description with answer');
+          setConnectionState('connected');
+        } else {
+          console.warn('Skipping answer, invalid state:', pcRef.current.signalingState);
         }
-      });
+      } catch (err) {
+        console.error('Failed to handle answer:', err);
+        setErrorMessage('Answer handling failed: ' + (err && err.message));
+      }
+    });
 
-      // Handle remote ICE candidates
-      socketRef.current.on('ice-candidate', async ({ candidate }) => {
+    // Handle remote ICE candidates
+    socketRef.current.on('ice-candidate', async ({ candidate }) => {
+      try {
         if (!candidate || !pcRef.current) return;
         const ice = new RTCIceCandidate(candidate);
-        try {
-          if (pcRef.current.remoteDescription)
+        if (pcRef.current.remoteDescription && pcRef.current.remoteDescription.type) {
+          try {
             await pcRef.current.addIceCandidate(ice);
-          else
-            pendingCandidatesRef.current.push(ice);
-        } catch (err) {
-          console.warn('Error adding ICE candidate:', err);
+          } catch (err) {
+            console.warn('Error adding ICE candidate immediately', err);
+          }
+        } else {
+          // remoteDescription not set yet — queue candidate
+          pendingCandidatesRef.current.push(ice);
+          console.debug('[socket] queued remote ICE candidate (waiting for remoteDesc)');
         }
-      });
+      } catch (err) {
+        console.warn('Error handling remote ice-candidate event', err);
+      }
+    });
 
-      // Handle call end from user
-      socketRef.current.on('call-ended', () => {
-        console.log('User ended the call');
-        cleanup();
-        setConnectionState('closed');
-      });
+    // Handle call end from user
+    socketRef.current.on('call-ended', () => {
+      console.log('User ended the call');
+      cleanup();
+      setConnectionState('closed');
+    });
 
-      // Handle disconnection or error
-      socketRef.current.on('disconnect', () => {
-        console.warn('Agent socket disconnected');
-        setConnectionState('disconnected');
-      });
+    // Handle disconnection or error
+    socketRef.current.on('disconnect', () => {
+      console.warn('Agent socket disconnected');
+      setConnectionState('disconnected');
+    });
 
-      socketRef.current.on('connect_error', (err) => {
-        console.error('Socket connection error:', err);
-        setConnectionState('failed');
-        setErrorMessage('Connection error: ' + err.message);
-      });
-
-      // Handle offers from peer (edge case)
-      socketRef.current.on('offer', async ({ offer, senderId }) => {
-        const pc = pcRef.current;
-        if (!pc) return;
-
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socketRef.current.emit('answer', { answer, roomId, userId });
-          console.log('Processed secondary offer → sent answer');
-        } catch (err) {
-          console.error('Failed handling incoming offer:', err);
-        }
-      });
-
-    } catch (err) {
-      console.error('initializeCall Error:', err);
-      setErrorMessage('Call setup failed: ' + err.message);
+    socketRef.current.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
       setConnectionState('failed');
-    }
-  };
+      setErrorMessage('Connection error: ' + err.message);
+    });
+
+    // Handle offers from peer (edge case)
+    socketRef.current.on('offer', async ({ offer, senderId }) => {
+      const pc = pcRef.current;
+      if (!pc) return;
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        // drain any queued candidates after setting remote description
+        await drainPendingCandidates();
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current.emit('answer', { answer, roomId, userId });
+        console.log('Processed secondary offer → sent answer');
+      } catch (err) {
+        console.error('Failed handling incoming offer:', err);
+      }
+    });
+
+  } catch (err) {
+    console.error('initializeCall Error:', err);
+    setErrorMessage('Call setup failed: ' + (err && err.message));
+    setConnectionState('failed');
+  }
+};
+
 
   // ===== Auto ID scan orchestration =====
   useEffect(() => {
@@ -750,7 +805,6 @@ useEffect(() => {
       // }
 
       // const id_data = await res1.json();
-      // console.log('ID Number:', id_data.id_number);
       const payload = { user_id: userId, image1: frontB64, image2: backB64, image3: faceB64 };
 
       const response = await fetch(VERIFY_URL, {
@@ -778,6 +832,7 @@ useEffect(() => {
       const raw = await response.text();
       if (!response.ok) throw new Error(`Result API failed: ${response.status} ${raw}`);
       const data = JSON.parse(raw);
+      console.log("DATA : ",data);
       const result = data?.result || {};
       return {
         face_1N_verification: { matches_found: result.face_1N_verification?.matches_found ?? null },
@@ -1055,8 +1110,21 @@ useEffect(() => {
       }
 
       // Convert to blob and store (no local download)
+     function dataURLToBlob(dataURL) {
+        const [header, base64] = dataURL.split(',');
+        const mimeMatch = header.match(/:(.*?);/);
+        const mime = (mimeMatch && mimeMatch[1]) || 'image/png';
+        const binary = atob(base64);
+        const len = binary.length;
+        const u8 = new Uint8Array(len);
+        for (let i = 0; i < len; i++) u8[i] = binary.charCodeAt(i);
+        return new Blob([u8], { type: mime });
+      }
+
+      // usage
       const dataURL = outCanvas.toDataURL('image/png');
-      const blob = await (await fetch(dataURL)).blob();
+      const blob = dataURLToBlob(dataURL);
+
       const url = URL.createObjectURL(blob);
       const imgObj = { id: Date.now(), url, blob, timestamp: new Date().toISOString(), type: side === 'front' ? 'front_card' : 'back_card' };
       setCapturedImages((prev) => ({ ...prev, [side === 'front' ? 'front_card' : 'back_card']: imgObj }));
@@ -1151,8 +1219,7 @@ useEffect(() => {
       captured_image_base64: faceB64 || "",
     };
 
-    console.log("Payload to send:", payload);
-
+ 
     // Send request
     const res = await fetch(
       "https://staging.digitaltrusttech.com/face-bknd/uploadimages",
@@ -1234,8 +1301,8 @@ useEffect(() => {
       .vc-close-button:hover { background: rgba(255,255,255,.2); }
       .vc-main-content { display: flex; flex: 1; overflow: hidden; position: relative; }
       .vc-video-center { flex: 1; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
-      .vc-video-container { position: relative; width: var(--video-width); height: var(--video-height); background: #000; }
-      .vc-remote-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+      .vc-video-container { position: relative; width: var(--video-width); height: var(--video-height); background: #000;display:flex; align-items:center; justify-content:center;overflow:hidden }
+      .vc-remote-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain;background:#000 }
       .vc-remote-video.vc-hidden { visibility: hidden; }
       .vc-face-overlay{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
       .vc-local-video-container { position: absolute; bottom: 10px; right: 10px; width: 200px; height: 180px; border-radius: 8px; overflow: hidden; border: 2px solid rgba(255,255,255,.5); box-shadow: 0 4px 12px rgba(0,0,0,.3); background: #000; z-index: 20; }

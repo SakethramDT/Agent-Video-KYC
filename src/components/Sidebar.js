@@ -1,21 +1,22 @@
 import React, { useState,useEffect } from 'react';
-import { Video, Calendar, FileText, BarChart3, Bell, Shield } from 'lucide-react';
+import { Video, Calendar, FileText, BarChart3, Bell, Shield, ChevronDown, Users, User, Settings } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 const SecureIDVSidebar = ({ loggedInAgent = '', onLogout = () => {} }) => {
   const [activeNav, setActiveNav] = useState('dashboard');
+  const [configsOpen, setConfigsOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();  
 
   useEffect(() => {
-    if (location.pathname.includes('/sessions')) {
-      setActiveNav('sessions');
-    } else if (location.pathname.includes('/documents')) {
-      setActiveNav('documents');
-    } else if (location.pathname.includes('/reports')) {
-      setActiveNav('reports');
-    } else {
-      setActiveNav('dashboard');
-    }
+    const p = location.pathname;
+    if (p.includes('/sessions')) setActiveNav('sessions');
+    else if (p.includes('/documents')) setActiveNav('documents');
+    else if (p.includes('/reports')) setActiveNav('reports');
+    else if (p.includes('/admin/roles')) { setActiveNav('roles'); setConfigsOpen(true); }
+    else if (p.includes('/admin/agents')) { setActiveNav('agents'); setConfigsOpen(true); }
+    else if (p.includes('/admin/services')) { setActiveNav('services'); setConfigsOpen(true); }
+    else if (p.includes('/admin/others') || p.includes('/admin/configurations')) { setActiveNav('others'); setConfigsOpen(true); }
+    else setActiveNav('dashboard');
   }, [location.pathname]);
   const styles = `
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -267,6 +268,40 @@ const SecureIDVSidebar = ({ loggedInAgent = '', onLogout = () => {} }) => {
       color: #9ca3af;
     }
 
+    /* Configurations submenu */
+    .config-toggle { display: flex; align-items: center; justify-content: space-between; }
+    .chevron { width: 16px; height: 16px; transition: transform 0.18s ease; color: #9ca3af; }
+    .chevron.open { transform: rotate(180deg); color: #2563eb; }
+
+    .sub-menu {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 6px;
+      margin-left: 14px; /* push slightly right to appear as dropdown */
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 10px 24px rgba(37,99,235,0.06); /* subtle bluish shadow */
+      transform: translateX(6px); /* slight right offset */
+    }
+    .sub-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      text-align: left;
+      background: transparent;
+      color: #374151;
+      border: none;
+      cursor: pointer;
+    }
+    .sub-item .nav-icon { width: 18px; height: 18px; color: #9ca3af; }
+    .sub-item:hover { background: #f9fafb; box-shadow: none; }
+    .sub-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
+
     @media (max-width: 900px) {
       .sidebar-container { width: 100%; height: auto; border-right: none; }
     }
@@ -349,6 +384,52 @@ const SecureIDVSidebar = ({ loggedInAgent = '', onLogout = () => {} }) => {
             <button className={`nav-item ${activeNav === 'reports' ? 'active' : ''}`} onClick={() => setActiveNav('reports')}>
               <div className="nav-item-content"><BarChart3 className="nav-icon" /><span>Reports</span></div>
             </button>
+
+            {/* Configurations Parent + Children (placed inside nav-menu for alignment) */}
+            <button
+              className={`nav-item ${['roles','agents','services','others'].includes(activeNav) ? 'active' : ''}`}
+              onClick={() => setConfigsOpen((s) => !s)}
+            >
+              <div className="nav-item-content config-toggle">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <Shield className="nav-icon" />
+                  <span>Configurations</span>
+                </div>
+                <ChevronDown className={`chevron ${configsOpen ? 'open' : ''}`} />
+              </div>
+            </button>
+
+            {configsOpen && (
+              <div className="sub-menu">
+                <button
+                  className={`sub-item ${activeNav === 'roles' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('roles'); navigate('/admin/roles'); }}
+                >
+                  <div className="nav-item-content"><Users className="nav-icon" /><span>Roles</span></div>
+                </button>
+
+                <button
+                  className={`sub-item ${activeNav === 'agents' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('agents'); navigate('/admin/agents'); }}
+                >
+                  <div className="nav-item-content"><User className="nav-icon" /><span>Agent</span></div>
+                </button>
+
+                <button
+                  className={`sub-item ${activeNav === 'services' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('services'); navigate('/admin/services'); }}
+                >
+                  <div className="nav-item-content"><Settings className="nav-icon" /><span>Services</span></div>
+                </button>
+
+                <button
+                  className={`sub-item ${activeNav === 'others' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('others'); navigate('/admin/others'); }}
+                >
+                  <div className="nav-item-content"><FileText className="nav-icon" /><span>Others</span></div>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

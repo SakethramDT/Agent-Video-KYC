@@ -1,6 +1,6 @@
 // /mnt/data/App.js
 import React, { useEffect, useState } from 'react';
-import {HashRouter, BrowserRouter as Router, Routes, Route, Outlet, useNavigate, Navigate } from 'react-router-dom';
+import { HashRouter, BrowserRouter as Router, Routes, Route, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import AgentLogin from './components/AgentLogin';
 import ProtectedRouteAdmin from './components/ProtectedRouteAdmin';
 import OfficerDashboard from './components/OfficerDashboard';
@@ -27,7 +27,9 @@ export default function AppWrapper() {
 
 function App() {
   const navigate = useNavigate();
-  const [loggedInAgent, setLoggedInAgent] = useState(localStorage.getItem('kycAgent') || '');
+  const [loggedInAgent, setLoggedInAgent] = useState(localStorage.getItem('kycAgent') ?? null);
+  const normalized = (loggedInAgent || '').toLowerCase().replace(/\s/g, '');
+  const isAdmin = normalized === 'admin';
 
   useEffect(() => {
     if (loggedInAgent) localStorage.setItem('kycAgent', loggedInAgent);
@@ -42,7 +44,7 @@ function App() {
         console.warn('Logout API failed:', err?.message || err);
       }
     }
-    setLoggedInAgent('');
+    setLoggedInAgent(null);
     localStorage.removeItem('kycAgent');
     if (redirect) navigate('/login', { replace: true });
   };
@@ -82,8 +84,7 @@ function App() {
     return <AgentLogin setLoggedInAgent={setLoggedInAgent} />;
   }
 
-  const normalized = (loggedInAgent || '').toLowerCase().replace(/\s/g, '');
-  const isAdmin = normalized === 'admin';
+  
 
   // -------- Layout components --------
   const AdminLayout = ({ children }) => {
@@ -95,7 +96,7 @@ function App() {
           onLogout={() => handleLogout({ callApi: false, redirect: true })}
         />
         {/* Main content area has its own container for route-specific styling */}
-        <div className="admin-main" style={{ flex: 1, marginLeft: 290, minHeight: '100vh'}}>
+        <div className="admin-main" style={{ flex: 1, marginLeft: 290, minHeight: '100vh' }}>
           {children}
         </div>
       </div>
@@ -107,14 +108,14 @@ function App() {
     if (!loggedInAgent) return <Navigate to="/login" replace />;
 
     return (
-      <div className="agent-root" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column',marginTop:70 }}>
+      <div className="agent-root" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', marginTop: 70 }}>
         <header className="agent-header" style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eee' }}>
           <div>
             <h2 style={{ margin: 0 }}>KYC Applications Dashboard</h2>
             <div style={{ fontSize: 13, color: '#666' }}>Agent: {loggedInAgent}</div>
           </div>
           <div>
-            <button style={{backgroundColor:'cream', height:30,borderRadius:6}} onClick={() => handleLogout({ callApi: false, redirect: true })}>Logout</button>
+            <button style={{ backgroundColor: 'cream', height: 30, borderRadius: 6 }} onClick={() => handleLogout({ callApi: false, redirect: true })}>Logout</button>
           </div>
         </header>
 
@@ -130,19 +131,19 @@ function App() {
   return (
     <Routes>
       {/* Admin routes (only accessible if loggedInAgent is admin) */}
-      <Route path="/" element={
-        isAdmin ? (
-          <AdminLayout>
-            <ProtectedRouteAdmin loggedInAgent={loggedInAgent}>
-              <OfficerDashboard
-                apiBase={`${process.env.REACT_APP_BACKEND_URL || ''}/api`}
-                loggedInAgent={loggedInAgent}
-                onLogout={() => handleLogout({ callApi: false, redirect: true })}
-              />
-            </ProtectedRouteAdmin>
-          </AdminLayout>
-        ) : <Navigate to="/app" replace />
-      } />
+      <Route
+        path="/"
+        element={
+          !loggedInAgent ? (
+            <Navigate to="/login" replace />
+          ) : isAdmin ? (
+            <Navigate to="/admin" replace />
+          ) : (
+            <Navigate to="/app" replace />
+          )
+        }
+      />
+
 
       <Route path="/admin" element={
         isAdmin ? (
@@ -200,13 +201,13 @@ function App() {
           </AdminLayout>
         ) : <Navigate to="/app" replace />
       } />
-       
+
 
       {/* Agent routes */}
       <Route path="/app" element={
         <AgentLayout>
           <div>
-            <Header/>
+            <Header />
             <StatsGrid agent={loggedInAgent} />
             <TabContainer
               loggedInAgent={loggedInAgent}

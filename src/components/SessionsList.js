@@ -31,7 +31,6 @@ const SessionsList = ({
       try {
         const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/agent/users/`);
         const data = await response.json();
-        console.log("user_data", data);
         const mapped = data.map((user) => ({
           id: user.user_id,
           name: user.name,

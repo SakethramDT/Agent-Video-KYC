@@ -19,8 +19,7 @@ const StatsGrid = (agent) => {
         console.log("Fetching from:", fullUrl);
         const data = await response.json();
         setStats(data);
-        console.log(data);
-      } catch (error) {
+       } catch (error) {
         console.error('Failed to fetch stats:', error);
       }
     }
